@@ -14,7 +14,6 @@ Types of import:
 IMPORTANT: Do NOT post this list to the issue-tracker. Use it as a basis for
             tracking down the missing module yourself. Thanks!
 
-missing module named 'org.python' - imported by copy (optional), xml.sax (delayed, conditional)
 missing module named urllib.quote_plus - imported by urllib (delayed, conditional), geocoder.baidu (delayed, conditional)
 missing module named urllib.quote - imported by urllib (delayed, conditional), geocoder.baidu (delayed, conditional)
 missing module named urllib.urlencode - imported by urllib (delayed, conditional), geocoder.baidu (delayed, conditional), geocoder.google (delayed, conditional)
@@ -24,6 +23,7 @@ missing module named posix - imported by os (conditional, optional), posixpath (
 missing module named resource - imported by posix (top-level)
 missing module named _frozen_importlib_external - imported by importlib._bootstrap (delayed), importlib (optional), importlib.abc (optional), zipimport (top-level)
 excluded module named _frozen_importlib - imported by importlib (optional), importlib.abc (optional), zipimport (top-level)
+missing module named 'org.python' - imported by copy (optional), xml.sax (delayed, conditional)
 missing module named org - imported by pickle (optional)
 missing module named _posixsubprocess - imported by subprocess (conditional), multiprocessing.util (delayed)
 missing module named fcntl - imported by subprocess (optional), serial.serialposix (top-level)
