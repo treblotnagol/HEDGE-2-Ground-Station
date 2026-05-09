@@ -6,22 +6,6 @@ import sys, os
 from openpyxl import Workbook
 from sk_dsp_comm.fec_conv import FECConv
 from cobs import cobs
-"""
-def getFromLog(logFilePath):
-    rawPackets = b''
-    log = open(logFilePath, "r")
-    for line in log:
-        parts = line.split(",")
-        if len(parts)>=4 and parts[2]=="RECV":
-            data = parts[3].strip()
-            try:
-                rawPackets += bytes.fromhex(data)
-            except ValueError as e:
-                print("Skipping invalid hex: {e}")
-
-    data = parseSciPacket(rawPackets)
-    print(data)
-"""
 
 def resourcePath(relativePath):
     if hasattr(sys, '_MEIPASS'):
@@ -37,23 +21,22 @@ def parseSciPacket(packet):
     
 
 def convDecode(package):
-    cc = FECConv(('1011011', '1111001'), Depth=30) #Rate 1/2 convolution encoder
+    depth=30
+    cc = FECConv(('1011011', '1111001'), Depth=depth) #Rate 1/2 convolution encoder
     bits = np.unpackbits(np.frombuffer(package, dtype=np.uint8))
-    bits = np.append(bits, np.zeros(60)) #depth*2
+    bits = np.append(bits, np.zeros(depth*2)) #depth*2
     bits = bits.astype(int)
     decodedBits = cc.viterbi_decoder(bits, metric_type="hard")
     decodedBits = decodedBits.astype(np.uint8)
-    decodedBits = decodedBits[:len(decodedBits)-66] #6 + depth*2
+    decodedBits = decodedBits[:len(decodedBits)-(depth*2+6)] #6 + depth*2
     nBytes = len(decodedBits) // 8
     decodedBits = decodedBits[:nBytes*8]
     package = np.packbits(decodedBits).tobytes()
     return package
 
 
-def processPacket(xbee):
+def processPacket(packet):
     values = ''
-    trail = b'\x00'*16
-    packet = xbee.read_until(expected=trail)
     if len(packet)>0:
         try:
             dd = convDecode(packet).rstrip(b'\x00')
@@ -61,7 +44,7 @@ def processPacket(xbee):
             values = parseSciPacket(uncobbed)
             print(values)
         except Exception as e:
-            print(f"Failed: {e}")
+            print(f"Failed packet processing: {e}")
     return values
 
 

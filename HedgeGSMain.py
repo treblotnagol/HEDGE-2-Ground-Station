@@ -5,10 +5,14 @@ import serial
 import serial.tools.list_ports
 import threading
 import queue
+import time
 import tkintermapview
 from tkinter import ttk, filedialog
 from PIL import Image, ImageTk
 from hedgeGSFuncs import writeData, processPacket, resourcePath
+
+PROCESSORS = 2
+STOP = None
 
 class HedgeGS:
     def __init__(self, root):
@@ -16,15 +20,25 @@ class HedgeGS:
         self.root.title("HEDGE Ground Station")
         self.root.geometry("1000x700")
         self.root.iconbitmap(resourcePath("assets/icon.ico"))
+        self.root.protocol("WM_DELETE_WINDOW", self.on_close)
         self.image = Image.open(resourcePath("assets/HEDGE logo.png")).resize((40,40))
         self.image = ImageTk.PhotoImage(self.image)
+
         self.ports = []
         self.connected = False
         self.data = []
+        self.last_map_update = 0
+
+        self.raw_queue = queue.Queue(maxsize=200)
         self.data_queue = queue.Queue()
         self.stop_event = threading.Event()
         self.xbee = None
-        
+
+        self.build_ui()
+        self.root.after(100, self.check_queue)
+
+
+    def build_ui(self):
         # create frames
         self.top_frame = tk.Frame(self.root)
         self.top_frame.pack(side=tk.TOP, fill=tk.X, padx=10, pady=10)
@@ -114,9 +128,14 @@ class HedgeGS:
         self.export_btn.pack(side=tk.RIGHT, padx=10)
         self.clear_btn = tk.Button(self.bottom_frame, text="Clear Data", command=self.clear_data)
         self.clear_btn.pack(side=tk.LEFT, padx=10)
-        self.root.after(100, self.check_queue)
 
+    
+    def on_close(self):
+        if self.connected:
+            self.toggleConnection()
+        self.root.destroy()
 
+    #port helpers
     def refresh_ports(self):
         ports = self.find_xbee_ports()
         if ports:
@@ -135,7 +154,7 @@ class HedgeGS:
                 xbee_ports.append(p.device)
         return xbee_ports
 
-
+    #data helpers
     def clear_data(self):
         self.tree.delete(*self.tree.get_children())
         self.data = []
@@ -154,36 +173,7 @@ class HedgeGS:
         if path:
             writeData(self.data, path)
 
-
-    def check_queue(self):
-        # called every 100ms from main thread to check for new data
-        while not self.data_queue.empty():
-            packet = self.data_queue.get()
-            self.update_window(packet)  # safe to update GUI here
-        self.root.after(100, self.check_queue)  # schedule next check
-
-    
-    def update_window(self, packet):
-        if len(packet)>= 15:
-            # update labels with latest values
-            self.lat_label.config(text=f"Latitude: {packet[3]:.4f}")
-            self.lon_label.config(text=f"Longitude: {packet[4]:.4f}")
-            self.alt_label.config(text=f"Altitude: {packet[7]:.1f} km")
-            self.h_speed_label.config(text=f"Horizontal Vel.: {packet[5]:.4f} m/s")
-            self.v_speed_label.config(text=f"Vertical Vel.: {packet[6]:.4f} m/s")
-            
-            # add row to table
-            self.tree.insert('', tk.END, values=(
-                packet[0], packet[9], packet[10],
-                packet[11], packet[12], packet[13], packet[14]
-            ))
-            
-            # auto scroll to latest and move marker
-            self.tree.yview_moveto(1)
-            self.marker.set_position(packet[3], packet[4])
-            self.map.set_position(packet[3], packet[4])
-
-
+    # Recevier thread function
     def readSerial(self):
         port = self.port_var.get()
         try:
@@ -196,17 +186,86 @@ class HedgeGS:
                 parity="N"
             )
             print("Connected to receiver XBee on port", self.xbee.port)
+
+            while not self.stop_event.is_set():
+                try:
+                    trail = b'\x00'*16
+                    raw = self.xbee.read_until(trail)
+                    if raw:
+                        try:
+                            self.raw_queue.put_nowait(raw)
+                        except:
+                            print("Raw queue full: dropping packet")
+                except serial.SerialException as e:
+                    if not self.stop_event.is_set():
+                        print(f"Serial error: {e}")
+                except Exception as e:
+                    print(f"Unexpected error: {e}")
         except Exception as e:
-            print(f"Error: {e}")
-            if self.connected:
-                self.toggleConnection()
-        while self.connected:
-            try:
-                values = processPacket(self.xbee)
-                self.data_queue.put(values)
-                self.data.append(values)
-            except KeyboardInterrupt:
+            print(f"Receiver error: {e}")
+            self.root.after(0, self.toggleConnection)   # update UI on main thread
+            return
+        finally:
+            if self.xbee and self.xbee.is_open():
+                self.xbee.close()
+                print("Port closed")
+            for _ in range(PROCESSORS):
+                self.raw_queue.put(STOP)
+            print("Receiver done")
+
+    # Processor thread function
+    def parsePacket(self, num: int):
+        while True:
+            raw = self.raw_queue.get()
+
+            if raw is STOP:
+                self.raw_queue.task_done()
+                print(f"Processor {num} shutting down")
                 break
+
+            try:
+                packet = processPacket(raw)
+                if packet:
+                    self.data_queue.put(packet)
+            except Exception as e:
+                print(f"Processor {num} parse error: {e} — raw: {raw!r}")
+            finally:
+                self.raw_queue.task_done()
+
+    # Display thread function
+    def check_queue(self):
+        latest = None
+        processed = 0
+        MAX = 20 # don't hog the UI thread if packets burst in
+        while processed < MAX:
+            try:
+                packet = self.data_queue.get_nowait()
+            except queue.Empty:
+                break
+            self.data.append(packet)
+            if len(packet) >= 15:
+                self.tree.insert('', tk.END, values=(
+                    packet[0], packet[9], packet[10],
+                    packet[11], packet[12], packet[13], packet[14]
+                ))
+                self.tree.yview_moveto(1)
+                if len(self.tree.get_children())>(MAX*2):
+                    self.tree.delete(self.tree.get_children()[0])
+            latest = packet
+            processed += 1
+
+        if latest and len(latest) >= 15:
+            self.lat_label.config(text=f"Latitude: {latest[3]:.4f}")
+            self.lon_label.config(text=f"Longitude: {latest[4]:.4f}")
+            self.alt_label.config(text=f"Altitude: {latest[7]:.1f} km")
+            self.h_speed_label.config(text=f"Horizontal Vel.: {latest[5]:.4f} m/s")
+            self.v_speed_label.config(text=f"Vertical Vel.: {latest[6]:.4f} m/s")
+            now = time.time()
+            if now - self.last_map_update > 2.0:
+                self.marker.set_position(latest[3], latest[4])
+                self.map.set_position(latest[3], latest[4])
+                self.last_map_update = now
+        self.root.after(100, self.check_queue)
 
     
     def toggleConnection(self):
@@ -221,20 +280,21 @@ class HedgeGS:
             self.status_label.config(text="Status: Disconnected", fg="red")
             print(f"Disconnected serial device on {self.port_var.get()}")
         else: #connect command
-            try:
-                self.connected = True
-                self.connect_btn.config(text="Disconnect")
-                self.status_label.config(text="Status: Connected", fg="green")
-                self.export_btn.config(state=tk.DISABLED)
-                self.refresh_btn.config(state=tk.DISABLED)
-                #thread for receiving
-                self.stop_event.clear()
-                self.serial_thread = threading.Thread(target=self.readSerial, daemon=True)
-                self.serial_thread.start()
-            except Exception as e:
-                print(f"Serial Failure: {e}")
-                if self.connected:
-                    self.toggleConnection()
+            self.connected = True
+            self.connect_btn.config(text="Disconnect")
+            self.status_label.config(text="Status: Connected", fg="green")
+            self.export_btn.config(state=tk.DISABLED)
+            self.refresh_btn.config(state=tk.DISABLED)
+            #thread for receiving
+            self.stop_event.clear()
+            # Serial receiver thread
+            self.serial_thread = threading.Thread(target=self.readSerial, name="serial-receiver", daemon=False)
+            self.serial_thread.start()
+            # Parse worker threads
+            self.worker_threads = [threading.Thread(target=self.parsePacket, args=(i,), name=f"parser-{i}", daemon=True)
+                for i in range(PROCESSORS)]
+            for t in self.worker_threads:
+                t.start()
 
 
 if __name__ == "__main__":

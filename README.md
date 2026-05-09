@@ -22,10 +22,11 @@
                     %% %%%%                                 
 
 A ground station application for receiving and displaying telemetry data from HEDGE-2.
-Version 1.0.0
+Version 1.0.1
 
 Patch Notes:
 - 1.0.0: Created application
+- 1.0.1: Restructured multi-threading to fix receiver bugs
 
 Requirements:
 - Windows 10/11
