@@ -38,13 +38,10 @@ def convDecode(package):
 def processPacket(packet):
     values = ''
     if len(packet)>0:
-        try:
-            dd = convDecode(packet).rstrip(b'\x00')
-            uncobbed = cobs.decode(dd)
-            values = parseSciPacket(uncobbed)
-            print(values)
-        except Exception as e:
-            print(f"Failed packet processing: {e}")
+        dd = convDecode(packet).strip(b'\x00')
+        uncobbed = cobs.decode(dd)
+        values = parseSciPacket(uncobbed)
+        print(values)
     return values
 
 

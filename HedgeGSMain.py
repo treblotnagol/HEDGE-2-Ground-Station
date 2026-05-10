@@ -173,6 +173,18 @@ class HedgeGS:
         if path:
             writeData(self.data, path)
 
+    
+    def sync_stream(self):
+        ncount = 0
+        while ncount<16:
+            byte = self.xbee.read(1)
+            if byte == b'\x00':
+                ncount += 1
+            else:
+                ncount = 0
+        
+        print("Stream Synced")
+
     # Recevier thread function
     def readSerial(self):
         port = self.port_var.get()
@@ -186,12 +198,12 @@ class HedgeGS:
                 parity="N"
             )
             print("Connected to receiver XBee on port", self.xbee.port)
-
             while not self.stop_event.is_set():
                 try:
                     trail = b'\x00'*16
                     raw = self.xbee.read_until(trail)
                     if raw:
+                        #print(raw)
                         try:
                             self.raw_queue.put_nowait(raw)
                         except:
@@ -206,7 +218,7 @@ class HedgeGS:
             self.root.after(0, self.toggleConnection)   # update UI on main thread
             return
         finally:
-            if self.xbee and self.xbee.is_open():
+            if self.xbee and self.xbee.is_open:
                 self.xbee.close()
                 print("Port closed")
             for _ in range(PROCESSORS):
