@@ -57,7 +57,10 @@ def writeData(data, bad_data, path):
         if len(row)>0:
             ws.append(row)
 
-    ws.append(["Unparsed/Bad Data:"])
-    for row in bad_data:
-        ws.append(row)
+    if len(bad_data)>0:
+        ws.append([])
+        ws.append(["Unparsed/Bad Data:"])
+        for seq in bad_data:
+            ws.append([seq.hex()])
+
     wb.save(path)

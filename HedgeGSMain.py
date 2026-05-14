@@ -172,7 +172,7 @@ class HedgeGS:
             ]
         )
         if path:
-            writeData(self.data, path)
+            writeData(self.data, self.bad_data, path)
 
     
     def sync_stream(self):
@@ -199,7 +199,7 @@ class HedgeGS:
                 parity="N"
             )
             print("Connected to receiver XBee on port", self.xbee.port)
-            self.sync_stream()
+            #self.sync_stream()
             while not self.stop_event.is_set():
                 try:
                     trail = b'\x00'*16
