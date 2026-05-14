@@ -27,6 +27,7 @@ class HedgeGS:
         self.ports = []
         self.connected = False
         self.data = []
+        self.bad_data = []
         self.last_map_update = 0
 
         self.raw_queue = queue.Queue(maxsize=200)
@@ -198,6 +199,7 @@ class HedgeGS:
                 parity="N"
             )
             print("Connected to receiver XBee on port", self.xbee.port)
+            self.sync_stream()
             while not self.stop_event.is_set():
                 try:
                     trail = b'\x00'*16
@@ -241,6 +243,7 @@ class HedgeGS:
                     self.data_queue.put(packet)
             except Exception as e:
                 print(f"Processor {num} parse error: {e} — raw: {raw!r}")
+                self.bad_data.append(raw)
             finally:
                 self.raw_queue.task_done()
 

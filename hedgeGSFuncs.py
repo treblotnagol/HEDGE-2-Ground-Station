@@ -45,7 +45,7 @@ def processPacket(packet):
     return values
 
 
-def writeData(data, path):
+def writeData(data, bad_data, path):
     wb = Workbook()
     ws = wb.active
     headers = ["Sequence #", "Packet Type", "GPS Epoch", 
@@ -57,4 +57,7 @@ def writeData(data, path):
         if len(row)>0:
             ws.append(row)
 
+    ws.append(["Unparsed/Bad Data:"])
+    for row in bad_data:
+        ws.append(row)
     wb.save(path)
